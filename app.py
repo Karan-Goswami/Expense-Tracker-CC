@@ -126,7 +126,46 @@ def logout():
 
 @app.route("/profile")
 def profile():
-    return "Profile page — coming in Step 4"
+    if not session.get("user_id"):
+        return redirect(url_for("login"))
+
+    # Hardcoded demo data for the static design; Step 5 replaces this with DB queries.
+    user = {
+        "name": "Demo User",
+        "email": "demo@spendly.com",
+        "initials": "DU",
+        "member_since": "January 2026",
+    }
+    transactions = [
+        {"date": "15 Nov 2026", "description": "New headphones", "category": "Shopping", "amount": 2299.99},
+        {"date": "12 Nov 2026", "description": "Movie and snacks", "category": "Entertainment", "amount": 499.00},
+        {"date": "08 Nov 2026", "description": "Pharmacy", "category": "Health", "amount": 650.00},
+        {"date": "05 Nov 2026", "description": "Electricity bill", "category": "Bills", "amount": 1800.00},
+        {"date": "03 Nov 2026", "description": "Metro card recharge", "category": "Transport", "amount": 120.50},
+        {"date": "02 Nov 2026", "description": "Gift", "category": "Other", "amount": 200.00},
+        {"date": "01 Nov 2026", "description": "Groceries", "category": "Food", "amount": 450.00},
+    ]
+    stats = {
+        "total_spent": 6019.49,
+        "transaction_count": len(transactions),
+        "top_category": "Shopping",
+    }
+    categories = [
+        {"name": "Shopping", "total": 2299.99, "percent": 38},
+        {"name": "Bills", "total": 1800.00, "percent": 30},
+        {"name": "Health", "total": 650.00, "percent": 11},
+        {"name": "Entertainment", "total": 499.00, "percent": 8},
+        {"name": "Food", "total": 450.00, "percent": 7},
+        {"name": "Other", "total": 200.00, "percent": 3},
+        {"name": "Transport", "total": 120.50, "percent": 2},
+    ]
+    return render_template(
+        "profile.html",
+        user=user,
+        stats=stats,
+        transactions=transactions,
+        categories=categories,
+    )
 
 
 @app.route("/expenses/add")
