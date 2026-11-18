@@ -790,6 +790,13 @@ a { color: inherit; text-decoration: none; }
     border-radius: 999px;
 }
 
+.profile-empty {
+    padding: 1.5rem 0;
+    text-align: center;
+    font-size: 0.9rem;
+    color: var(--ink-muted);
+}
+
 /* ------------------------------------------------------------------ */
 /* Responsive                                                          */
 /* ------------------------------------------------------------------ */

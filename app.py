@@ -1,10 +1,19 @@
 import os
 import sqlite3
+from datetime import datetime
 
 from flask import Flask, redirect, render_template, request, session, url_for
 from werkzeug.security import check_password_hash, generate_password_hash
 
-from database.db import get_db, init_db, seed_db
+from database.db import (
+    get_category_totals,
+    get_db,
+    get_expense_stats,
+    get_recent_expenses,
+    get_user_by_id,
+    init_db,
+    seed_db,
+)
 
 app = Flask(__name__)
 # Development-only fallback; set SECRET_KEY in the environment for real use.
@@ -124,41 +133,78 @@ def logout():
     return redirect(url_for("landing"))
 
 
+# ===== PROFILE VIEW HELPERS =====
+
+# --- TRANSACTIONS (subagent 1) ---
+def _format_transactions(rows):
+    """Return rows in the same shape with `date` formatted like "15 Nov 2026". Must not mutate input."""
+    formatted = []
+    for row in rows:
+        item = dict(row)
+        try:
+            item["date"] = datetime.strptime(item["date"], "%Y-%m-%d").strftime("%d %b %Y")
+        except (KeyError, TypeError, ValueError):
+            pass  # leave an unparseable date as stored
+        formatted.append(item)
+    return formatted
+# --- END TRANSACTIONS ---
+
+
+# --- STATS (subagent 2) ---
+def _build_stats(raw):
+    """Turn get_expense_stats() output into the template's stats dict; top_category None -> "—"."""
+    return {
+        "total_spent": float(raw["total_spent"]),
+        "transaction_count": int(raw["transaction_count"]),
+        "top_category": raw["top_category"] or "—",
+    }
+# --- END STATS ---
+
+
+# --- CATEGORIES (subagent 3) ---
+def _build_categories(rows, total_spent):
+    """Add an integer `percent` to each {"name", "total"} row; 0 when total_spent is 0."""
+    return [
+        {
+            "name": r["name"],
+            "total": r["total"],
+            "percent": int(round(r["total"] / total_spent * 100)) if total_spent else 0,
+        }
+        for r in rows
+    ]
+# --- END CATEGORIES ---
+
+
 @app.route("/profile")
 def profile():
-    if not session.get("user_id"):
+    uid = session.get("user_id")
+    if not uid:
         return redirect(url_for("login"))
 
-    # Hardcoded demo data for the static design; Step 5 replaces this with DB queries.
+    db_user = get_user_by_id(uid)
+    if db_user is None:
+        # Stale session (user row no longer exists).
+        session.clear()
+        return redirect(url_for("login"))
+
+    words = db_user["name"].split()
+    try:
+        member_since = datetime.strptime(
+            db_user["created_at"][:10], "%Y-%m-%d"
+        ).strftime("%B %Y")
+    except (TypeError, ValueError):
+        member_since = ""
     user = {
-        "name": "Demo User",
-        "email": "demo@spendly.com",
-        "initials": "DU",
-        "member_since": "January 2026",
+        "name": db_user["name"],
+        "email": db_user["email"],
+        "initials": "".join(w[0] for w in words[:2]).upper(),
+        "member_since": member_since,
     }
-    transactions = [
-        {"date": "15 Nov 2026", "description": "New headphones", "category": "Shopping", "amount": 2299.99},
-        {"date": "12 Nov 2026", "description": "Movie and snacks", "category": "Entertainment", "amount": 499.00},
-        {"date": "08 Nov 2026", "description": "Pharmacy", "category": "Health", "amount": 650.00},
-        {"date": "05 Nov 2026", "description": "Electricity bill", "category": "Bills", "amount": 1800.00},
-        {"date": "03 Nov 2026", "description": "Metro card recharge", "category": "Transport", "amount": 120.50},
-        {"date": "02 Nov 2026", "description": "Gift", "category": "Other", "amount": 200.00},
-        {"date": "01 Nov 2026", "description": "Groceries", "category": "Food", "amount": 450.00},
-    ]
-    stats = {
-        "total_spent": 6019.49,
-        "transaction_count": len(transactions),
-        "top_category": "Shopping",
-    }
-    categories = [
-        {"name": "Shopping", "total": 2299.99, "percent": 38},
-        {"name": "Bills", "total": 1800.00, "percent": 30},
-        {"name": "Health", "total": 650.00, "percent": 11},
-        {"name": "Entertainment", "total": 499.00, "percent": 8},
-        {"name": "Food", "total": 450.00, "percent": 7},
-        {"name": "Other", "total": 200.00, "percent": 3},
-        {"name": "Transport", "total": 120.50, "percent": 2},
-    ]
+
+    stats = _build_stats(get_expense_stats(uid))
+    transactions = _format_transactions(get_recent_expenses(uid))
+    categories = _build_categories(get_category_totals(uid), stats["total_spent"])
+
     return render_template(
         "profile.html",
         user=user,
