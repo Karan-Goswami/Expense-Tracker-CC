@@ -38,6 +38,7 @@
 
         <div class="profile-card">
             <h2 class="profile-heading"><i data-lucide="credit-card"></i>Recent transactions</h2>
+            {% if transactions %}
             <div class="profile-table-wrap">
                 <table class="profile-table">
                     <thead>
@@ -60,10 +61,14 @@
                     </tbody>
                 </table>
             </div>
+            {% else %}
+            <p class="profile-empty">No expenses yet.</p>
+            {% endif %}
         </div>
 
         <div class="profile-card">
             <h2 class="profile-heading"><i data-lucide="pie-chart"></i>Spending by category</h2>
+            {% if categories %}
             <ul class="profile-cats">
                 {% for c in categories %}
                 <li class="profile-cat-row cat-{{ c.name|lower }}">
@@ -74,6 +79,9 @@
                 </li>
                 {% endfor %}
             </ul>
+            {% else %}
+            <p class="profile-empty">No spending to show yet.</p>
+            {% endif %}
         </div>
 
         </div>

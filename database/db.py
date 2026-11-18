@@ -83,3 +83,94 @@ def seed_db():
         conn.commit()
     finally:
         conn.close()
+
+
+# ===== PROFILE: USER (main agent) =====
+
+def get_user_by_id(user_id):
+    """Return {"id", "name", "email", "created_at"} for the user, or None."""
+    conn = get_db()
+    try:
+        row = conn.execute(
+            "SELECT id, name, email, created_at FROM users WHERE id = ?",
+            (user_id,),
+        ).fetchone()
+    finally:
+        conn.close()
+    return dict(row) if row else None
+
+# ===== END PROFILE: USER =====
+
+
+# ===== PROFILE: TRANSACTIONS (subagent 1) =====
+
+def get_recent_expenses(user_id, limit=10):
+    """Return the user's newest expenses as [{"date", "description", "category", "amount"}]."""
+    conn = get_db()
+    try:
+        rows = conn.execute(
+            "SELECT date, description, category, amount FROM expenses "
+            "WHERE user_id = ? ORDER BY date DESC, id DESC LIMIT ?",
+            (user_id, limit),
+        ).fetchall()
+        return [
+            {
+                "date": r["date"],
+                "description": r["description"],
+                "category": r["category"],
+                "amount": r["amount"],
+            }
+            for r in rows
+        ]
+    finally:
+        conn.close()
+
+# ===== END PROFILE: TRANSACTIONS =====
+
+
+# ===== PROFILE: STATS (subagent 2) =====
+
+def get_expense_stats(user_id):
+    """Return {"total_spent", "transaction_count", "top_category"} over ALL the user's expenses.
+
+    With no expenses: 0.0, 0 and None.
+    """
+    conn = get_db()
+    try:
+        total, count = conn.execute(
+            "SELECT COALESCE(SUM(amount), 0.0), COUNT(*) FROM expenses WHERE user_id = ?",
+            (user_id,),
+        ).fetchone()
+        top = conn.execute(
+            "SELECT category FROM expenses WHERE user_id = ? "
+            "GROUP BY category ORDER BY SUM(amount) DESC, category ASC LIMIT 1",
+            (user_id,),
+        ).fetchone()
+        return {
+            "total_spent": float(total),
+            "transaction_count": int(count),
+            "top_category": top[0] if top else None,
+        }
+    finally:
+        conn.close()
+
+# ===== END PROFILE: STATS =====
+
+
+# ===== PROFILE: CATEGORIES (subagent 3) =====
+
+def get_category_totals(user_id):
+    """Return [{"name", "total"}, ...] ordered by total DESC, then name ASC."""
+    conn = get_db()
+    try:
+        rows = conn.execute(
+            "SELECT category AS name, SUM(amount) AS total "
+            "FROM expenses WHERE user_id = ? "
+            "GROUP BY category ORDER BY total DESC, category ASC",
+            (user_id,),
+        ).fetchall()
+        return [{"name": r["name"], "total": float(r["total"])} for r in rows]
+    finally:
+        conn.close()
+
+# ===== END PROFILE: CATEGORIES =====
