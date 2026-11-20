@@ -85,6 +85,25 @@ def seed_db():
         conn.close()
 
 
+# ===== SHARED QUERY HELPERS =====
+
+def _date_clause(date_from, date_to):
+    """Return (sql_fragment, params) for an inclusive YYYY-MM-DD range.
+
+    Only fixed SQL strings are appended; the date values travel as parameters.
+    """
+    sql, params = "", []
+    if date_from:
+        sql += " AND date >= ?"
+        params.append(date_from)
+    if date_to:
+        sql += " AND date <= ?"
+        params.append(date_to)
+    return sql, params
+
+# ===== END SHARED QUERY HELPERS =====
+
+
 # ===== PROFILE: USER (main agent) =====
 
 def get_user_by_id(user_id):
@@ -104,15 +123,24 @@ def get_user_by_id(user_id):
 
 # ===== PROFILE: TRANSACTIONS (subagent 1) =====
 
-def get_recent_expenses(user_id, limit=10):
-    """Return the user's newest expenses as [{"date", "description", "category", "amount"}]."""
+def get_recent_expenses(user_id, limit=10, date_from=None, date_to=None):
+    """Return the user's newest expenses as [{"date", "description", "category", "amount"}].
+
+    Optional inclusive date_from/date_to (YYYY-MM-DD) narrow the range.
+    limit=None returns every matching row.
+    """
+    clause, params = _date_clause(date_from, date_to)
+    sql = (
+        "SELECT date, description, category, amount FROM expenses "
+        "WHERE user_id = ?" + clause + " ORDER BY date DESC, id DESC"
+    )
+    args = [user_id] + params
+    if limit is not None:
+        sql += " LIMIT ?"
+        args.append(limit)
     conn = get_db()
     try:
-        rows = conn.execute(
-            "SELECT date, description, category, amount FROM expenses "
-            "WHERE user_id = ? ORDER BY date DESC, id DESC LIMIT ?",
-            (user_id, limit),
-        ).fetchall()
+        rows = conn.execute(sql, args).fetchall()
         return [
             {
                 "date": r["date"],
@@ -130,21 +158,25 @@ def get_recent_expenses(user_id, limit=10):
 
 # ===== PROFILE: STATS (subagent 2) =====
 
-def get_expense_stats(user_id):
-    """Return {"total_spent", "transaction_count", "top_category"} over ALL the user's expenses.
+def get_expense_stats(user_id, date_from=None, date_to=None):
+    """Return {"total_spent", "transaction_count", "top_category"}.
 
-    With no expenses: 0.0, 0 and None.
+    Covers all the user's expenses, or only the inclusive date_from/date_to range.
+    With no matching expenses: 0.0, 0 and None.
     """
+    clause, params = _date_clause(date_from, date_to)
+    args = [user_id] + params
     conn = get_db()
     try:
         total, count = conn.execute(
-            "SELECT COALESCE(SUM(amount), 0.0), COUNT(*) FROM expenses WHERE user_id = ?",
-            (user_id,),
+            "SELECT COALESCE(SUM(amount), 0.0), COUNT(*) FROM expenses "
+            "WHERE user_id = ?" + clause,
+            args,
         ).fetchone()
         top = conn.execute(
-            "SELECT category FROM expenses WHERE user_id = ? "
-            "GROUP BY category ORDER BY SUM(amount) DESC, category ASC LIMIT 1",
-            (user_id,),
+            "SELECT category FROM expenses WHERE user_id = ?" + clause +
+            " GROUP BY category ORDER BY SUM(amount) DESC, category ASC LIMIT 1",
+            args,
         ).fetchone()
         return {
             "total_spent": float(total),
@@ -159,15 +191,19 @@ def get_expense_stats(user_id):
 
 # ===== PROFILE: CATEGORIES (subagent 3) =====
 
-def get_category_totals(user_id):
-    """Return [{"name", "total"}, ...] ordered by total DESC, then name ASC."""
+def get_category_totals(user_id, date_from=None, date_to=None):
+    """Return [{"name", "total"}, ...] ordered by total DESC, then name ASC.
+
+    Optional inclusive date_from/date_to (YYYY-MM-DD) narrow the range.
+    """
+    clause, params = _date_clause(date_from, date_to)
     conn = get_db()
     try:
         rows = conn.execute(
             "SELECT category AS name, SUM(amount) AS total "
-            "FROM expenses WHERE user_id = ? "
-            "GROUP BY category ORDER BY total DESC, category ASC",
-            (user_id,),
+            "FROM expenses WHERE user_id = ?" + clause +
+            " GROUP BY category ORDER BY total DESC, category ASC",
+            [user_id] + params,
         ).fetchall()
         return [{"name": r["name"], "total": float(r["total"])} for r in rows]
     finally:

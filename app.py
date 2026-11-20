@@ -1,6 +1,6 @@
 import os
 import sqlite3
-from datetime import datetime
+from datetime import date, datetime, timedelta
 
 from flask import Flask, redirect, render_template, request, session, url_for
 from werkzeug.security import check_password_hash, generate_password_hash
@@ -14,6 +14,9 @@ from database.db import (
     init_db,
     seed_db,
 )
+
+RECENT_TRANSACTIONS_LIMIT = 10  # unfiltered profile list
+MAX_FILTERED_ROWS = 500         # safety cap when a date filter is active
 
 app = Flask(__name__)
 # Development-only fallback; set SECRET_KEY in the environment for real use.
@@ -175,6 +178,67 @@ def _build_categories(rows, total_spent):
 # --- END CATEGORIES ---
 
 
+def _parse_date_filter(args):
+    """Return (date_from, date_to, error) from request args.
+
+    Values are ISO YYYY-MM-DD strings or "". Any invalid input discards both bounds.
+    """
+    def normalise(value):
+        # Re-serialise so only canonical zero-padded ASCII YYYY-MM-DD reaches SQL,
+        # which compares the TEXT date column lexicographically.
+        value = value.strip()
+        if not value:
+            return ""
+        return datetime.strptime(value, "%Y-%m-%d").date().isoformat()
+
+    try:
+        date_from = normalise(args.get("date_from", ""))
+        date_to = normalise(args.get("date_to", ""))
+    except ValueError:
+        return "", "", "Please enter valid dates."
+    if date_from and date_to and date_from > date_to:
+        return "", "", "Start date must be on or before end date."
+    return date_from, date_to, None
+
+
+def _build_presets(today, date_from, date_to):
+    """Return quick-range links with an `active` flag matching the current filter."""
+    year, month = today.year, today.month - 2
+    if month < 1:
+        year, month = year - 1, month + 12
+    ranges = [
+        ("This month", today.replace(day=1), today),
+        ("Last 30 days", today - timedelta(days=29), today),
+        ("Last 3 months", date(year, month, 1), today),
+        ("All time", None, None),
+    ]
+    presets = []
+    for label, start, end in ranges:
+        start_s = start.isoformat() if start else ""
+        end_s = end.isoformat() if end else ""
+        presets.append({
+            "label": label,
+            "date_from": start_s,
+            "date_to": end_s,
+            "active": (start_s, end_s) == (date_from, date_to),
+        })
+    return presets
+
+
+def _format_range_label(date_from, date_to):
+    """Human text for the active range, e.g. "01 Nov 2026 – 20 Nov 2026"."""
+    def fmt(value):
+        return datetime.strptime(value, "%Y-%m-%d").strftime("%d %b %Y")
+
+    if date_from and date_to:
+        return f"{fmt(date_from)} – {fmt(date_to)}"
+    if date_from:
+        return f"since {fmt(date_from)}"
+    if date_to:
+        return f"up to {fmt(date_to)}"
+    return ""
+
+
 @app.route("/profile")
 def profile():
     uid = session.get("user_id")
@@ -201,9 +265,21 @@ def profile():
         "member_since": member_since,
     }
 
-    stats = _build_stats(get_expense_stats(uid))
-    transactions = _format_transactions(get_recent_expenses(uid))
-    categories = _build_categories(get_category_totals(uid), stats["total_spent"])
+    date_from, date_to, filter_error = _parse_date_filter(request.args)
+    filter_active = bool(date_from or date_to)
+
+    stats = _build_stats(get_expense_stats(uid, date_from, date_to))
+    transactions = _format_transactions(
+        get_recent_expenses(
+            uid,
+            limit=MAX_FILTERED_ROWS if filter_active else RECENT_TRANSACTIONS_LIMIT,
+            date_from=date_from,
+            date_to=date_to,
+        )
+    )
+    categories = _build_categories(
+        get_category_totals(uid, date_from, date_to), stats["total_spent"]
+    )
 
     return render_template(
         "profile.html",
@@ -211,6 +287,12 @@ def profile():
         stats=stats,
         transactions=transactions,
         categories=categories,
+        date_from=date_from,
+        date_to=date_to,
+        filter_active=filter_active,
+        filter_error=filter_error,
+        filter_label=_format_range_label(date_from, date_to),
+        presets=_build_presets(date.today(), date_from, date_to),
     )
 
 
