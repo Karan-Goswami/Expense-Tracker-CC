@@ -16,6 +16,32 @@
             </div>
         </div>
 
+        <div class="profile-card profile-filter">
+            <form class="profile-filter-form" method="get" action="{{ url_for('profile') }}">
+                <label class="profile-filter-field">From
+                    <input type="date" name="date_from" value="{{ date_from }}"{% if date_to %} max="{{ date_to }}"{% endif %}>
+                </label>
+                <label class="profile-filter-field">To
+                    <input type="date" name="date_to" value="{{ date_to }}"{% if date_from %} min="{{ date_from }}"{% endif %}>
+                </label>
+                <div class="profile-filter-actions">
+                    <button type="submit" class="btn-primary">Apply</button>
+                    <a class="profile-filter-clear" href="{{ url_for('profile') }}">Clear</a>
+                </div>
+            </form>
+            <div class="profile-filter-presets">
+                {% for p in presets %}
+                <a class="profile-filter-preset{% if p.active %} is-active{% endif %}"
+                   href="{{ url_for('profile', date_from=p.date_from or None, date_to=p.date_to or None) }}">{{ p.label }}</a>
+                {% endfor %}
+            </div>
+            {% if filter_error %}
+            <p class="profile-filter-error">{{ filter_error }}</p>
+            {% elif filter_active %}
+            <p class="profile-filter-range">Showing {{ filter_label }}</p>
+            {% endif %}
+        </div>
+
         <div class="profile-stats">
             <div class="profile-card profile-stat">
                 <span class="profile-stat-icon"><i data-lucide="wallet"></i></span>
@@ -37,7 +63,7 @@
         <div class="profile-grid">
 
         <div class="profile-card">
-            <h2 class="profile-heading"><i data-lucide="credit-card"></i>Recent transactions</h2>
+            <h2 class="profile-heading"><i data-lucide="credit-card"></i>{% if filter_active %}Transactions{% else %}Recent transactions{% endif %}</h2>
             {% if transactions %}
             <div class="profile-table-wrap">
                 <table class="profile-table">
@@ -62,7 +88,7 @@
                 </table>
             </div>
             {% else %}
-            <p class="profile-empty">No expenses yet.</p>
+            <p class="profile-empty">{% if filter_active %}No expenses in this date range.{% else %}No expenses yet.{% endif %}</p>
             {% endif %}
         </div>
 
@@ -80,7 +106,7 @@
                 {% endfor %}
             </ul>
             {% else %}
-            <p class="profile-empty">No spending to show yet.</p>
+            <p class="profile-empty">{% if filter_active %}No spending in this date range.{% else %}No spending to show yet.{% endif %}</p>
             {% endif %}
         </div>
 
